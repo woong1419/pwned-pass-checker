@@ -3,10 +3,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Shield, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Loader2, Shield, AlertTriangle, CheckCircle2, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 const Index = () => {
+  const navigate = useNavigate();
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -102,11 +104,19 @@ const Index = () => {
       {/* Hero Section */}
       <section className="border-b">
         <div className="container mx-auto px-4 py-12 md:py-20">
-          <div className="max-w-3xl mx-auto text-center space-y-4">
+          <div className="max-w-3xl mx-auto text-center space-y-6">
             <h1 className="text-4xl md:text-5xl font-bold">정보보안의 날 행사</h1>
             <p className="text-lg text-muted-foreground">
               매년 7월 둘째 주 수요일은 정보보안의 날입니다
             </p>
+            <Button
+              size="lg"
+              onClick={() => navigate("/survey")}
+              className="gap-2"
+            >
+              <ClipboardList className="w-5 h-5" />
+              정보보안 인식 조사 참여하기
+            </Button>
           </div>
         </div>
       </section>
