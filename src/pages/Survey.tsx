@@ -16,6 +16,10 @@ const Survey = () => {
     count: number;
     hash: string;
     safety: "safe" | "moderate" | "weak";
+    length: { score: number; status: "safe" | "moderate" | "weak" };
+    complexity: { score: number; status: "safe" | "moderate" | "weak" };
+    predictability: { score: number; status: "safe" | "moderate" | "weak" };
+    overallScore: number;
   } | null>(null);
 
   const sha1 = async (str: string): Promise<string> => {
@@ -23,6 +27,95 @@ const Survey = () => {
     const hashBuffer = await crypto.subtle.digest("SHA-1", buffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+  };
+
+  const checkPasswordLength = (pwd: string) => {
+    const length = pwd.length;
+    let score = 0;
+    let status: "safe" | "moderate" | "weak";
+
+    if (length >= 16) {
+      score = 100;
+      status = "safe";
+    } else if (length >= 12) {
+      score = 75;
+      status = "safe";
+    } else if (length >= 8) {
+      score = 50;
+      status = "moderate";
+    } else {
+      score = 25;
+      status = "weak";
+    }
+
+    return { score, status };
+  };
+
+  const checkPasswordComplexity = (pwd: string) => {
+    let score = 0;
+    const hasLowerCase = /[a-z]/.test(pwd);
+    const hasUpperCase = /[A-Z]/.test(pwd);
+    const hasNumbers = /\d/.test(pwd);
+    const hasSpecialChars = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd);
+
+    if (hasLowerCase) score += 25;
+    if (hasUpperCase) score += 25;
+    if (hasNumbers) score += 25;
+    if (hasSpecialChars) score += 25;
+
+    let status: "safe" | "moderate" | "weak";
+    if (score >= 75) {
+      status = "safe";
+    } else if (score >= 50) {
+      status = "moderate";
+    } else {
+      status = "weak";
+    }
+
+    return { score, status };
+  };
+
+  const checkPasswordPredictability = (pwd: string) => {
+    let score = 100;
+    
+    // 연속된 문자 체크 (예: abc, 123)
+    const hasSequential = /(?:abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz|012|123|234|345|456|567|678|789)/i.test(pwd);
+    if (hasSequential) score -= 20;
+
+    // 반복 패턴 체크 (예: aaa, 111)
+    const hasRepeating = /(.)\1{2,}/.test(pwd);
+    if (hasRepeating) score -= 20;
+
+    // 일반적인 패턴 체크
+    const commonPatterns = [
+      /password/i, /admin/i, /user/i, /login/i, /welcome/i,
+      /qwerty/i, /asdfgh/i, /zxcvbn/i, /111111/, /123456/,
+      /abcdef/i, /letmein/i, /monkey/i, /dragon/i
+    ];
+    
+    for (const pattern of commonPatterns) {
+      if (pattern.test(pwd)) {
+        score -= 30;
+        break;
+      }
+    }
+
+    // 키보드 패턴 체크
+    const keyboardPatterns = /qwert|asdfg|zxcvb|poiuy|lkjhg|mnbvc/i;
+    if (keyboardPatterns.test(pwd)) score -= 20;
+
+    score = Math.max(0, score);
+
+    let status: "safe" | "moderate" | "weak";
+    if (score >= 70) {
+      status = "safe";
+    } else if (score >= 40) {
+      status = "moderate";
+    } else {
+      status = "weak";
+    }
+
+    return { score, status };
   };
 
   const checkPassword = async () => {
@@ -35,6 +128,16 @@ const Survey = () => {
     setResult(null);
 
     try {
+      // 길이 검사
+      const length = checkPasswordLength(password);
+      
+      // 복잡성 검사
+      const complexity = checkPasswordComplexity(password);
+      
+      // 예측 불가능성 검사
+      const predictability = checkPasswordPredictability(password);
+
+      // Have I Been Pwned API 검사
       const hash = await sha1(password);
       const prefix = hash.slice(0, 5);
       const suffix = hash.slice(5);
@@ -53,16 +156,40 @@ const Survey = () => {
         }
       }
 
+      // 종합 안전도 계산
+      let breachScore = 100;
+      if (count > 0) {
+        if (count >= 100) {
+          breachScore = 0;
+        } else if (count >= 10) {
+          breachScore = 25;
+        } else {
+          breachScore = 50;
+        }
+      }
+
+      const overallScore = Math.round(
+        (length.score * 0.25 + complexity.score * 0.25 + predictability.score * 0.25 + breachScore * 0.25)
+      );
+
       let safety: "safe" | "moderate" | "weak";
-      if (count === 0) {
+      if (overallScore >= 70) {
         safety = "safe";
-      } else if (count < 100) {
+      } else if (overallScore >= 40) {
         safety = "moderate";
       } else {
         safety = "weak";
       }
 
-      setResult({ count, hash, safety });
+      setResult({ 
+        count, 
+        hash, 
+        safety,
+        length,
+        complexity,
+        predictability,
+        overallScore
+      });
       setStep(3);
     } catch (error) {
       toast.error("검사 중 오류가 발생했습니다");
@@ -222,54 +349,136 @@ const Survey = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {/* 종합 안전도 */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                      <span className="font-medium">안전도</span>
+                      <span className="font-medium">종합 안전도</span>
                       {safetyInfo && (
                         <Badge variant={safetyInfo.variant} className="flex items-center gap-2">
                           {safetyInfo.icon}
-                          {safetyInfo.label}
+                          {safetyInfo.label} ({result.overallScore}점)
                         </Badge>
                       )}
                     </div>
+                  </div>
 
-                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                      <span className="font-medium">유출 횟수</span>
-                      <span className={`text-lg font-mono font-bold ${safetyInfo?.color}`}>
-                        {result.count.toLocaleString()}회
-                      </span>
+                  {/* 세부 평가 항목 */}
+                  <div className="space-y-3">
+                    <h4 className="font-semibold">세부 평가</h4>
+                    
+                    {/* 길이 */}
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">길이</span>
+                        <span className="text-xs text-muted-foreground">({password.length}자)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold ${
+                          result.length.status === "safe" ? "text-green-600 dark:text-green-400" :
+                          result.length.status === "moderate" ? "text-yellow-600 dark:text-yellow-400" :
+                          "text-red-600 dark:text-red-400"
+                        }`}>
+                          {result.length.score}점
+                        </span>
+                        {result.length.status === "safe" ? <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" /> :
+                         result.length.status === "moderate" ? <Shield className="w-4 h-4 text-yellow-600 dark:text-yellow-400" /> :
+                         <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />}
+                      </div>
                     </div>
 
-                    <div className="space-y-2 p-4 bg-muted rounded-lg">
-                      <span className="font-medium">SHA-1 해시</span>
-                      <p className="text-xs font-mono break-all opacity-70">
-                        {result.hash}
-                      </p>
+                    {/* 복잡성 */}
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <span className="text-sm font-medium">복잡성</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold ${
+                          result.complexity.status === "safe" ? "text-green-600 dark:text-green-400" :
+                          result.complexity.status === "moderate" ? "text-yellow-600 dark:text-yellow-400" :
+                          "text-red-600 dark:text-red-400"
+                        }`}>
+                          {result.complexity.score}점
+                        </span>
+                        {result.complexity.status === "safe" ? <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" /> :
+                         result.complexity.status === "moderate" ? <Shield className="w-4 h-4 text-yellow-600 dark:text-yellow-400" /> :
+                         <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />}
+                      </div>
+                    </div>
+
+                    {/* 예측 불가능성 */}
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <span className="text-sm font-medium">예측 불가능성</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold ${
+                          result.predictability.status === "safe" ? "text-green-600 dark:text-green-400" :
+                          result.predictability.status === "moderate" ? "text-yellow-600 dark:text-yellow-400" :
+                          "text-red-600 dark:text-red-400"
+                        }`}>
+                          {result.predictability.score}점
+                        </span>
+                        {result.predictability.status === "safe" ? <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" /> :
+                         result.predictability.status === "moderate" ? <Shield className="w-4 h-4 text-yellow-600 dark:text-yellow-400" /> :
+                         <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />}
+                      </div>
+                    </div>
+
+                    {/* 유출 검사 */}
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <span className="text-sm font-medium">유출 검사</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold ${
+                          result.count === 0 ? "text-green-600 dark:text-green-400" :
+                          result.count < 100 ? "text-yellow-600 dark:text-yellow-400" :
+                          "text-red-600 dark:text-red-400"
+                        }`}>
+                          {result.count.toLocaleString()}회
+                        </span>
+                        {result.count === 0 ? <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" /> :
+                         result.count < 100 ? <Shield className="w-4 h-4 text-yellow-600 dark:text-yellow-400" /> :
+                         <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />}
+                      </div>
                     </div>
                   </div>
 
-                  {result.count > 0 ? (
+                  <div className="space-y-2 p-4 bg-muted rounded-lg">
+                    <span className="font-medium text-sm">SHA-1 해시</span>
+                    <p className="text-xs font-mono break-all opacity-70">
+                      {result.hash}
+                    </p>
+                  </div>
+
+                  {result.overallScore < 70 ? (
                     <div className="p-4 border-2 border-destructive rounded-lg space-y-3">
                       <h4 className="font-semibold flex items-center gap-2 text-destructive">
                         <AlertTriangle className="w-5 h-5" />
-                        비밀번호를 즉시 변경하세요!
+                        비밀번호 개선이 필요합니다!
                       </h4>
                       <ul className="space-y-2 text-sm">
-                        <li className="flex items-start gap-2">
-                          <span className="text-destructive mt-0.5">•</span>
-                          <span>영문 대소문자, 숫자, 특수문자를 조합하세요</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-destructive mt-0.5">•</span>
-                          <span>최소 12자 이상으로 설정하세요</span>
-                        </li>
+                        {result.length.status !== "safe" && (
+                          <li className="flex items-start gap-2">
+                            <span className="text-destructive mt-0.5">•</span>
+                            <span>비밀번호는 최소 12자 이상으로 설정하세요 (현재: {password.length}자)</span>
+                          </li>
+                        )}
+                        {result.complexity.status !== "safe" && (
+                          <li className="flex items-start gap-2">
+                            <span className="text-destructive mt-0.5">•</span>
+                            <span>영문 대소문자, 숫자, 특수문자를 모두 조합하세요</span>
+                          </li>
+                        )}
+                        {result.predictability.status !== "safe" && (
+                          <li className="flex items-start gap-2">
+                            <span className="text-destructive mt-0.5">•</span>
+                            <span>연속된 문자, 반복 패턴, 일반적인 단어는 피하세요</span>
+                          </li>
+                        )}
+                        {result.count > 0 && (
+                          <li className="flex items-start gap-2">
+                            <span className="text-destructive mt-0.5">•</span>
+                            <span>이 비밀번호는 {result.count.toLocaleString()}회 유출되었습니다. 즉시 변경하세요!</span>
+                          </li>
+                        )}
                         <li className="flex items-start gap-2">
                           <span className="text-destructive mt-0.5">•</span>
                           <span>다른 사이트와 같은 비밀번호를 사용하지 마세요</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-destructive mt-0.5">•</span>
-                          <span>정기적으로 비밀번호를 변경하세요</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <span className="text-destructive mt-0.5">•</span>
@@ -284,7 +493,7 @@ const Survey = () => {
                         안전한 비밀번호입니다!
                       </h4>
                       <p className="text-sm text-muted-foreground">
-                        현재까지 알려진 유출 사고에서 발견되지 않은 비밀번호입니다. 
+                        비밀번호가 안전한 기준을 충족하고 있습니다.
                         하지만 지속적인 보안 관리를 위해 정기적으로 비밀번호를 변경하고 
                         2단계 인증을 사용하시는 것을 권장합니다.
                       </p>
